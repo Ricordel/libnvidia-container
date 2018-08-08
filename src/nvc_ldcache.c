@@ -36,6 +36,10 @@ static int   adjust_capabilities(struct error *, uid_t, bool);
 static int   adjust_privileges(struct error *, uid_t, gid_t, bool);
 static int   limit_resources(struct error *);
 static int   limit_syscalls(struct error *);
+static int   switch_root(struct error *err, const char *rootfs);
+static int   pivot_root(struct error *err, const char *rootfs);
+static int   move_root(struct error *err, const char *rootfs);
+static int   use_pivot_root(void);
 
 static inline bool
 secure_mode(void)
@@ -88,24 +92,69 @@ create_process(struct error *err, int flags)
         return (child);
 }
 
+
+
+/* The logic for switching roots according by using pivot_root or not is
+ * inspired by the code of 'runc'. The goal is to be able not to use pivot_root
+ * in cases where it wouldn't work, typically if running from a ramfs. */
+
 static int
-change_rootfs(struct error *err, const char *rootfs, bool mount_proc, bool *drop_groups)
+use_pivot_root(void)
+{
+        if (getenv("DOCKER_RAMDISK") != NULL)
+                return 0;
+        else
+                return 1;
+}
+
+static int
+switch_root(struct error *err, const char *rootfs)
+{
+        if (use_pivot_root()) {
+                return pivot_root(err, rootfs);
+        } else {
+                return move_root(err, rootfs);
+        }
+}
+
+
+static int
+move_root(struct error *err, const char *rootfs)
 {
         int rv = -1;
         int oldroot = -1;
         int newroot = -1;
-        char buf[8] = {0};
-        const char *mounts[] = {"/proc", "/sys", "/dev"};
 
-        error_reset(err);
+        if ((oldroot = xopen(err, "/", O_PATH|O_DIRECTORY)) < 0)
+                goto fail;
+        if ((newroot = xopen(err, rootfs, O_PATH|O_DIRECTORY)) < 0)
+                goto fail;
+        if (fchdir(newroot) < 0)
+                goto fail;
+        if (mount(rootfs, "/", "", MS_MOVE, "") < 0)
+                goto fail;
+        if (chroot(".") < 0)
+                goto fail;
+        if (fchdir(newroot) < 0)
+                goto fail;
 
-        /* Create a new mount namespace with private propagation. */
-        if (unshare(CLONE_NEWNS) < 0)
-                goto fail;
-        if (xmount(err, NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) < 0)
-                goto fail;
-        if (xmount(err, rootfs, rootfs, NULL, MS_BIND|MS_REC, NULL) < 0)
-                goto fail;
+        rv = 0;
+
+fail:
+        if (rv < 0 && err->code == 0)
+                error_set(err, "moving root failed");
+        xclose(oldroot);
+        xclose(newroot);
+        return (rv);
+}
+
+
+static int
+pivot_root(struct error *err, const char *rootfs)
+{
+        int rv = -1;
+        int oldroot = -1;
+        int newroot = -1;
 
         /* Pivot to the new rootfs and unmount the previous one. */
         if ((oldroot = xopen(err, "/", O_PATH|O_DIRECTORY)) < 0)
@@ -123,6 +172,37 @@ change_rootfs(struct error *err, const char *rootfs, bool mount_proc, bool *drop
         if (fchdir(newroot) < 0)
                 goto fail;
         if (chroot(".") < 0)
+                goto fail;
+
+        rv = 0;
+
+fail:
+        if (rv < 0 && err->code == 0)
+                error_set(err, "switching root failed");
+        xclose(oldroot);
+        xclose(newroot);
+        return (rv);
+}
+
+
+static int
+change_rootfs(struct error *err, const char *rootfs, bool mount_proc, bool *drop_groups)
+{
+        int rv = -1;
+        char buf[8] = {0};
+        const char *mounts[] = {"/proc", "/sys", "/dev"};
+
+        error_reset(err);
+
+        /* Create a new mount namespace with private propagation. */
+        if (unshare(CLONE_NEWNS) < 0)
+                goto fail;
+        if (xmount(err, NULL, "/", NULL, MS_PRIVATE|MS_REC, NULL) < 0)
+                goto fail;
+        if (xmount(err, rootfs, rootfs, NULL, MS_BIND|MS_REC, NULL) < 0)
+                goto fail;
+
+        if (switch_root(err, rootfs) < 0)
                 goto fail;
 
         if (mount_proc && xmount(err, NULL, "/proc", "proc", MS_RDONLY, NULL) < 0)
@@ -145,8 +225,6 @@ change_rootfs(struct error *err, const char *rootfs, bool mount_proc, bool *drop
  fail:
         if (rv < 0 && err->code == 0)
                 error_set(err, "process confinement failed");
-        xclose(oldroot);
-        xclose(newroot);
         return (rv);
 }
 
