@@ -101,10 +101,13 @@ create_process(struct error *err, int flags)
 static int
 use_pivot_root(void)
 {
-        if (getenv("DOCKER_RAMDISK") != NULL)
-                return 0;
-        else
-                return 1;
+    if (getenv("DOCKER_RAMDISK") != NULL) {
+        return 0;
+    } else if (access("/etc/qtask/docker_ramdisk", F_OK) == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
 }
 
 static int
