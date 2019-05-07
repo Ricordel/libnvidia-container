@@ -10,6 +10,10 @@
 WITH_LIBELF  ?= no
 WITH_TIRPC   ?= no
 WITH_SECCOMP ?= yes
+REVISION := $(shell git rev-parse HEAD)
+ifeq ($(REVISION),)
+$(error Invalid commit hash)
+endif
 
 ##### Global definitions #####
 
@@ -218,12 +222,12 @@ static: $(LIB_STATIC)($(LIB_STATIC_OBJ))
 deps: export DESTDIR:=$(DEPS_DIR)
 deps: $(LIB_RPC_SRCS) $(BUILD_DEFS)
 	$(MKDIR) -p $(DEPS_DIR)
-	$(MAKE) -f $(MAKE_DIR)/nvidia-modprobe.mk install
+	$(MAKE) REVISION=$(REVISION) -f $(MAKE_DIR)/nvidia-modprobe.mk install
 ifeq ($(WITH_LIBELF), no)
-	$(MAKE) -f $(MAKE_DIR)/elftoolchain.mk install
+	$(MAKE) REVISION=$(REVISION) -f $(MAKE_DIR)/elftoolchain.mk install
 endif
 ifeq ($(WITH_TIRPC), yes)
-	$(MAKE) -f $(MAKE_DIR)/libtirpc.mk install
+	$(MAKE) REVISION=$(REVISION) -f $(MAKE_DIR)/libtirpc.mk install
 endif
 
 install: all

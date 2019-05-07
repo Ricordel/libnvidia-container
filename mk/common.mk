@@ -21,15 +21,11 @@ DOCKER   ?= docker
 UID      := $(shell id -u)
 GID      := $(shell id -g)
 DATE     := $(shell date -u --iso-8601=minutes)
-REVISION := $(shell git rev-parse HEAD)
 COMPILER := $(realpath $(shell which $(CC)))
 PLATFORM ?= $(shell uname -m)
 
 ifeq ($(DATE),)
 $(error Invalid date format)
-endif
-ifeq ($(REVISION),)
-$(error Invalid commit hash)
 endif
 ifeq ($(COMPILER),)
 $(error Invalid compiler)
