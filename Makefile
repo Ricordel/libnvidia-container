@@ -10,9 +10,11 @@
 WITH_LIBELF  ?= no
 WITH_TIRPC   ?= no
 WITH_SECCOMP ?= yes
+ifeq ($(REVISION),)
 REVISION := $(shell git rev-parse HEAD)
 ifeq ($(REVISION),)
 $(error Invalid commit hash)
+endif
 endif
 
 ##### Global definitions #####
@@ -315,5 +317,6 @@ docker-%:
                     --build-arg WITH_LIBELF=$(WITH_LIBELF) \
                     --build-arg WITH_TIRPC=$(WITH_TIRPC) \
                     --build-arg WITH_SECCOMP=$(WITH_SECCOMP) \
+					--build-arg REVISION=$(REVISION) \
                     -f $(MAKE_DIR)/Dockerfile.$${image%%:*} -t $(LIB_NAME):$${image/:} . ;\
 	$(DOCKER) run --rm -v $(DIST_DIR)/$${image/:}:/mnt:Z -e TAG -e DISTRIB -e SECTION $(LIB_NAME):$${image/:}
